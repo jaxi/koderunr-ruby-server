@@ -1,0 +1,37 @@
+body {
+  background-color: #002240;
+  color: rgb(58, 210, 27);
+}
+
+button {
+  color: black;
+}
+
+.terminal div{
+  margin-bottom: 10px;
+}
+
+.terminal-output, .cmd{
+  font-size: 10pt !important;
+}
+
+#content {
+  width: 100%;
+}
+
+#editor {
+  position: fixed;
+  width: 50%;
+  height: 92%;
+}
+
+#navbar {
+  margin-top: 12px;
+  margin-bottom: 15px;
+}
+
+#stdio {
+  position: fixed;
+  height: 100%;
+  width: 100%;
+}
