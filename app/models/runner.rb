@@ -47,11 +47,11 @@ class Runner
   def create_container
     options = {
       "name" => uuid,
-			"Image": image,
-			"NetworkDisabled" => true,
-			"OpenStdin" => true,
-			"Cmd" => [source, uuid],
-			"KernelMemory": 1024 * 1024 * 4,
+      "Image": image,
+      "NetworkDisabled" => true,
+      "OpenStdin" => true,
+      "Cmd" => [source, uuid],
+      "KernelMemory": 1024 * 1024 * 4,
     }
     @container = Docker::Container.create(options)
   end
@@ -61,11 +61,11 @@ class Runner
 
     container.start!(
       "CPUQuota" => 20000,
-  		"MemorySwap" => -1,
-  		"Privileged" => false,
-  		"CapDrop" => ["all"],
-  		"Memory" => 80 * 1024 * 1024,
-  		"PidsLimit" => 100
+      "MemorySwap" => -1,
+      "Privileged" => false,
+      "CapDrop" => ["all"],
+      "Memory" => 80 * 1024 * 1024,
+      "PidsLimit" => 100
     )
   end
 
