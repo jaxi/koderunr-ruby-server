@@ -13,6 +13,7 @@ gem 'turbolinks', '~> 5'
 gem 'ace-rails-ap'
 
 gem 'redis', '~> 3.0'
+gem "connection_pool", "~> 2.2"
 
 gem 'docker-api'
 # Use ActiveModel has_secure_password

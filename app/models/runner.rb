@@ -1,3 +1,5 @@
+# Runner is the runnable class that talks to the
+# Docker container and streaming stdin, stdout & stderr
 class Runner
   class NotFound < StandardError; end
 
@@ -13,7 +15,7 @@ class Runner
       lang: lang,
       source: source,
       version: version,
-      timeout: timeout,
+      timeout: timeout
     }
   end
 
@@ -21,37 +23,52 @@ class Runner
     to_hash.to_json
   end
 
+  def run!(writer)
+    create_container
+    start_container
+    attach_container do |chunk|
+      writer.write chunk
+    end
+  end
+
   # Public: Save the runnable to Redis store as a UUID
   #
   # Returns a uuid
   def save
     SecureRandom.uuid.tap do |uuid|
-      self.class.store.set("#{uuid}#run", to_json)
+      RedisPool.with_conn do |conn|
+        conn.set("#{uuid}#run", to_json)
+      end
     end
   end
 
   def self.find(uuid)
-    stored_data = self.store.get("#{uuid}#run")
+    raw_data = RedisPool.with_conn do |conn|
+      conn.get("#{uuid}#run")
+    end
 
-    raise NotFound if stored_data.nil?
+    raise NotFound if raw_data.nil?
 
-    new(JSON.parse(stored_data, symbolize_names: true)).tap do |runner|
+    new(JSON.parse(raw_data, symbolize_names: true)).tap do |runner|
       runner.uuid = uuid
     end
   end
 
   def delete
-    self.class.store.del("#{uuid}#run") if uuid
+    return unless uuid
+    RedisPool.with_conn do |conn|
+      conn.del("#{uuid}#run")
+    end
   end
 
   def create_container
     options = {
-      "name" => uuid,
-      "Image": image,
-      "NetworkDisabled" => true,
-      "OpenStdin" => true,
-      "Cmd" => [source, uuid],
-      "KernelMemory": 1024 * 1024 * 4,
+      name: uuid,
+      Image: image,
+      NetworkDisabled: true,
+      OpenStdin: true,
+      Cmd: [source, uuid],
+      KernelMemory: 1024 * 1024 * 4
     }
     @container = Docker::Container.create(options)
   end
@@ -60,65 +77,58 @@ class Runner
     @stdin_reader, @stdin_writer = IO.pipe
 
     container.start!(
-      "CPUQuota" => 20000,
-      "MemorySwap" => -1,
-      "Privileged" => false,
-      "CapDrop" => ["all"],
-      "Memory" => 80 * 1024 * 1024,
-      "PidsLimit" => 100
+      CPUQuota: 20_000,
+      MemorySwap: -1,
+      Privileged: false,
+      CapDrop: ['all'],
+      Memory: 80 * 1024 * 1024,
+      PidsLimit: 100
     )
   end
 
   def read_stdin
-    self.class.store.subscribe_with_timeout(20, "#{uuid}#stdin") do |on|
-      on.message do |channel, message|
-        stdin_writer.write(message)
+    RedisPool.with_conn do |conn|
+      conn.subscribe_with_timeout(20, "#{uuid}#stdin") do |on|
+        on.message do |_channel, message|
+          stdin_writer.write(message)
+        end
       end
     end
   end
 
   def attach_container
     Thread.new { read_stdin }
+    streaming_container { |output| yield output }
+  rescue StandardError => e
+    Rails.logger.error e
+  end
 
-    Timeout::timeout(timeout) do
+  def cleanup
+    container.stop
+    container.remove(force: true)
+    delete
+  end
+
+  attr_reader :lang, :source, :version, :timeout, :container,
+              :stdin_reader, :stdin_writer
+
+  attr_accessor :uuid
+
+  private
+
+  def streaming_container
+    Timeout.timeout(timeout) do
       container.attach(stdin: stdin_reader) do |_, chunk|
         chunk.split("\n").each do |piece|
           yield piece
         end
       end
 
-      yield ""
+      yield ''
     end
-  rescue Timeout::Error
-    container.stop
-    container.remove(force: true)
-    delete
-  end
-
-  attr_reader :lang, :source, :version, :timeout, :container
-
-  attr_reader :stdin_reader, :stdin_writer
-
-  attr_accessor :uuid
-
-  private
-
-  def self.store
-    @store ||= Redis.new(host: "localhost", port: 6379)
   end
 
   def image
-    selected_version = version
-    available_versions = LANGUAGE_VERSIONS[lang]
-
-    if selected_version.blank?
-      if available_versions.length > 0
-        selected_version = available_versions.first
-      else
-        selected_version = "latest"
-      end
-    end
-
-    "#{DOCKER_IMAGES[lang]}:#{selected_version}"
+    ImageSelector.new(lang, version).name
   end
 end
